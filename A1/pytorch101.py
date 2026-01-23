@@ -116,7 +116,7 @@ def create_tensor_of_pi(M: int, N: int) -> Tensor:
     #         TODO: Implement this function. It should take one line.        #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    x = torch.full((M,N), 3.14)
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -142,7 +142,11 @@ def multiples_of_ten(start: int, stop: int) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    first_ele = (start+9)//10 * 10
+    if first_ele > stop:
+        x = torch.zeros(0, dtype=torch.float64)
+    else:
+        x = torch.arange(first_ele, stop+1, 10, dtype=torch.float64)
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -181,7 +185,10 @@ def slice_indexing_practice(x: Tensor) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    last_row = x[-1, :]
+    third_col = x[:, 2:3]
+    first_two_rows_three_cols = x[:2, :3]
+    even_rows_odd_cols = x[::2, 1::2]
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -224,7 +231,10 @@ def slice_assignment_practice(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    x[:4, :6] = torch.tensor([[0, 1, 2, 2, 2, 2],
+                              [0, 1, 2, 2, 2, 2],
+                              [3, 4, 3, 4, 5, 5],
+                              [3, 4, 3, 4, 5, 5]])
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -252,7 +262,8 @@ def shuffle_cols(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    idx = [0, 0, 2, 1]
+    y = x[:, idx]
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -282,7 +293,8 @@ def reverse_rows(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    idx = torch.arange(x.shape[0]-1, -1, -1)
+    y = x[idx]
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -311,7 +323,9 @@ def take_one_elem_per_col(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    idx0 = torch.tensor([1, 0, 3])
+    idx1 = torch.tensor([0, 1, 2])
+    y = x[idx0, idx1]
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -339,7 +353,8 @@ def make_one_hot(x: List[int]) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    y = torch.zeros(len(x), max(x)+1)
+    y[torch.arange(len(x)), x] = 1
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -376,7 +391,7 @@ def sum_positive_entries(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    pos_sum = x[x > 0].sum().item()
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -407,7 +422,9 @@ def reshape_practice(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    tem = x.reshape(2, 3, 4)
+    tem = tem.transpose(0, 1)
+    y = tem.reshape(3, 8)
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -446,7 +463,9 @@ def zero_row_min(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    y = x.clone()
+    idx_min = torch.argmin(x, dim=1)
+    y[torch.arange(x.shape[0]), idx_min] = 0
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -502,7 +521,9 @@ def batched_matrix_multiply_loop(x: Tensor, y: Tensor) -> Tensor:
     #                      TODO: Implement this function                      #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    z = torch.zeros(x.shape[0], x.shape[1], y.shape[2])
+    for idx in torch.arange(x.shape[0]):
+        z[idx] = torch.mm(x[idx], y[idx])
     ###########################################################################
     #                           END OF YOUR CODE                              #
     ###########################################################################
@@ -533,7 +554,7 @@ def batched_matrix_multiply_noloop(x: Tensor, y: Tensor) -> Tensor:
     #                      TODO: Implement this function                      #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    z = torch.bmm(x, y)
     ###########################################################################
     #                            END OF YOUR CODE                             #
     ###########################################################################
@@ -568,7 +589,10 @@ def normalize_columns(x: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    mean = x.sum(dim=0, keepdim=True) / x.shape[0]
+    std = (((x-mean)**2).sum(dim=0, keepdim=True) / (x.shape[0]-1)).sqrt()
+    print(mean, std)
+    y = (x - mean) / std
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################
@@ -615,7 +639,10 @@ def mm_on_gpu(x: Tensor, w: Tensor) -> Tensor:
     #                      TODO: Implement this function                     #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    x_gpu = x.cuda()
+    w_gpu = w.cuda()
+    y_gpu = x_gpu.mm(w_gpu)
+    y = y_gpu.cpu()
     ##########################################################################
     #                            END OF YOUR CODE                            #
     ##########################################################################

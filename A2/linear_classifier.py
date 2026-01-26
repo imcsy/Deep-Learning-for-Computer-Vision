@@ -154,8 +154,8 @@ def svm_loss_naive(
     loss = 0.0
     for i in range(num_train):
         scores = W.t().mv(X[i])
-        correct_class_score = scores[y[i]]
-        for j in range(num_classes):
+        correct_class_score = scores[y[i]]      # y is ground-true values
+        for j in range(num_classes): 
             if j == y[i]:
                 continue
             margin = scores[j] - correct_class_score + 1  # note delta = 1
@@ -169,7 +169,8 @@ def svm_loss_naive(
                 # at the same time that the loss is being computed.                   #
                 #######################################################################
                 # Replace "pass" statement with your code
-                pass
+                dW[:, j] += X[i]
+                dW[:, y[i]] -= X[i]
                 #######################################################################
                 #                       END OF YOUR CODE                              #
                 #######################################################################
@@ -177,6 +178,7 @@ def svm_loss_naive(
     # Right now the loss is a sum over all training examples, but we want it
     # to be an average instead so we divide by num_train.
     loss /= num_train
+    dW /= num_train
 
     # Add regularization to the loss.
     loss += reg * torch.sum(W * W)
@@ -187,7 +189,7 @@ def svm_loss_naive(
     # and add it to dW. (part 2)                                                #
     #############################################################################
     # Replace "pass" statement with your code
-    pass
+    dW += (reg * 2 * W)
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -223,11 +225,17 @@ def svm_loss_vectorized(
     # result in loss.                                                           #
     #############################################################################
     # Replace "pass" statement with your code
-    pass
+    num_train = X.shape[0]
+    scores = torch.mm(X, W)     # shape (N, C)
+    correct_scores = scores[range(num_train), y]    # shape (N,)
+    margins = scores - correct_scores.view(-1,1) + 1
+    relu_mask = margins < 0
+    margins[relu_mask] = 0
+    margins[range(num_train), y] = 0
+    loss = margins.view(-1).sum() / num_train + reg * torch.sum(W * W)
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
-
     #############################################################################
     # TODO:                                                                     #
     # Implement a vectorized version of the gradient for the structured SVM     #
@@ -238,7 +246,11 @@ def svm_loss_vectorized(
     # loss.                                                                     #
     #############################################################################
     # Replace "pass" statement with your code
-    pass
+    coeff = torch.ones_like(margins)
+    coeff[margins==0] = 0
+    coeff[range(num_train), y] = -coeff.sum(dim=1)
+    dW = torch.mm(X.t(), coeff) / num_train
+    dW += (reg * 2 * W)
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################

@@ -229,10 +229,11 @@ def svm_loss_vectorized(
     scores = torch.mm(X, W)     # shape (N, C)
     correct_scores = scores[range(num_train), y]    # shape (N,)
     margins = scores - correct_scores.view(-1,1) + 1
-    relu_mask = margins < 0
-    margins[relu_mask] = 0
+    margins[margins < 0] = 0
     margins[range(num_train), y] = 0
-    loss = margins.view(-1).sum() / num_train + reg * torch.sum(W * W)
+    regulization = reg * torch.sum(W * W)
+    hinge = margins.view(-1).sum()
+    loss = hinge / num_train + regulization
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -246,11 +247,30 @@ def svm_loss_vectorized(
     # loss.                                                                     #
     #############################################################################
     # Replace "pass" statement with your code
-    coeff = torch.ones_like(margins)
-    coeff[margins==0] = 0
-    coeff[range(num_train), y] = -coeff.sum(dim=1)
-    dW = torch.mm(X.t(), coeff) / num_train
-    dW += (reg * 2 * W)
+    
+    # method 1
+    grad_loss = 1
+    grad_hinge = 1 * grad_loss
+    grad_regulization = 1 * grad_loss
+    local_grad_margins = torch.ones_like(margins) / num_train
+    grad_margins = local_grad_margins * grad_hinge
+    local_grad_scores = torch.ones_like(margins)
+    local_grad_scores[margins == 0] = 0
+    local_grad_scores[range(num_train), y] = -local_grad_scores.sum(dim=1)
+    grad_scores = local_grad_scores * grad_margins
+    grad_W_scores = torch.mm(X.t(), grad_scores)
+    grad_W_reg = reg * 2 * W * grad_regulization
+    grad_W = grad_W_scores + grad_W_reg
+
+    dW = grad_W
+
+    # # method 2
+    # coeff = torch.ones_like(margins)
+    # coeff[margins==0] = 0
+    # coeff[range(num_train), y] = -coeff.sum(dim=1)
+    # dW = torch.mm(X.t(), coeff) / num_train
+    # dW += (reg * 2 * W)
+
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################

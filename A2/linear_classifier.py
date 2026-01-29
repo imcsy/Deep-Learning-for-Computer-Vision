@@ -295,7 +295,9 @@ def sample_batch(
     # Hint: Use torch.randint to generate indices.                          #
     #########################################################################
     # Replace "pass" statement with your code
-    pass
+    indices = torch.randint(0, num_train, (batch_size,))
+    X_batch = X[indices]
+    y_batch = y[indices]
     #########################################################################
     #                       END OF YOUR CODE                                #
     #########################################################################
@@ -363,7 +365,7 @@ def train_linear_classifier(
         # Update the weights using the gradient and the learning rate.          #
         #########################################################################
         # Replace "pass" statement with your code
-        pass
+        W -= learning_rate * grad
         #########################################################################
         #                       END OF YOUR CODE                                #
         #########################################################################
@@ -394,7 +396,8 @@ def predict_linear_classifier(W: torch.Tensor, X: torch.Tensor):
     # Implement this method. Store the predicted labels in y_pred.            #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    scores = torch.mm(X, W)
+    y_pred = torch.argmax(scores, dim=1)
     ###########################################################################
     #                           END OF YOUR CODE                              #
     ###########################################################################
@@ -420,7 +423,8 @@ def svm_get_search_params():
     # TODO:   add your own hyper parameter lists.                             #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    learning_rates = [1e-3, 5e-3, 1e-2, 1e-1]       # 1e-2
+    regularization_strengths = [1e-2, 1e-1, 1e0, 1e1]   # 1e-2
     ###########################################################################
     #                           END OF YOUR CODE                              #
     ###########################################################################
@@ -469,10 +473,20 @@ def test_one_param_set(
     ###########################################################################
     # Feel free to uncomment this, at the very beginning,
     # and don't forget to remove this line before submitting your final version
-    # num_iters = 100
+    num_iters = 500
 
     # Replace "pass" statement with your code
-    pass
+    X_train = data_dict['X_train']
+    y_train = data_dict['y_train']
+    X_val = data_dict['X_val']
+    y_val = data_dict['y_val']
+
+    cls.train(X_train=X_train, y_train=y_train, learning_rate=lr, reg=reg, num_iters=num_iters)
+    y_train_pred = cls.predict(X_train)
+    train_acc = (y_train == y_train_pred).sum() / len(y_train)
+    y_val_pred = cls.predict(X_val)
+    val_acc = (y_val == y_val_pred).sum() / len(y_val)
+
     ############################################################################
     #                            END OF YOUR CODE                              #
     ############################################################################

@@ -533,7 +533,25 @@ def softmax_loss_naive(
     # regularization!                                                           #
     #############################################################################
     # Replace "pass" statement with your code
-    pass
+    num_classes = W.shape[1]
+    num_train = X.shape[0]
+    for i in range(num_train):
+        scores = W.t().mv(X[i])
+        scores -= torch.max(scores, dim=0, keepdim=True).values
+        scores_exp_nor = torch.exp(scores) / (torch.exp(scores)).sum()
+        loss -= torch.log(scores_exp_nor[y[i]])
+
+        for j in range(num_classes):
+            if j == y[i]:
+                dW[:, j] += (scores_exp_nor[j]-1) * X[i]
+            else:
+                dW[:, j] += scores_exp_nor[j] * X[i]
+
+    loss /= num_train
+    loss += reg * torch.sum(W * W)
+
+    dW /= num_train
+    dW += (reg * 2 * W)
     #############################################################################
     #                          END OF YOUR CODE                                 #
     #############################################################################
@@ -563,7 +581,27 @@ def softmax_loss_vectorized(
     # regularization!                                                           #
     #############################################################################
     # Replace "pass" statement with your code
-    pass
+    num_train = X.shape[0]
+    scores = torch.mm(X, W)
+    scores -= torch.max(scores, dim=1, keepdim=True).values
+    scores_exp = torch.exp(scores)
+    prob_mat = scores_exp / torch.sum(scores_exp, dim=1, keepdim=True)
+    prob_cor = prob_mat[range(num_train),y]
+    data_loss = -torch.log(prob_cor).sum() / num_train
+    reg_loss = reg * torch.sum(W * W)
+    loss = data_loss + reg_loss
+    
+    mask_correct = torch.zeros_like(scores)
+    mask_correct[range(num_train), y] = 1
+
+    ddata_loss = 1.0
+    dreg_loss = 1.0
+    dscores_exp_nor = -(1/prob_cor) / num_train * ddata_loss
+    dscores = - prob_mat * prob_cor.view(-1,1) * dscores_exp_nor.view(-1,1)
+    dscores[range(num_train), y] += scores_exp[range(num_train), y] / torch.sum(scores_exp, dim=1) * dscores_exp_nor
+    dW_scores = torch.mm(X.t(), dscores)
+    dW_reg = (reg * 2 * W) * dreg_loss
+    dW = dW_reg + dW_scores
     #############################################################################
     #                          END OF YOUR CODE                                 #
     #############################################################################
@@ -592,7 +630,8 @@ def softmax_get_search_params():
     # classifier.                                                             #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    learning_rates = [1e-3, 5e-3, 1e-2, 1e-1]       # 1e-2
+    regularization_strengths = [1e-2, 1e-1, 1e0, 1e1]   # 1e-2
     ###########################################################################
     #                           END OF YOUR CODE                              #
     ###########################################################################

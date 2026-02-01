@@ -429,7 +429,10 @@ def nn_get_search_params():
     # classifier.                                                             #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    learning_rates = [1e-1, 1e0, 1e1]
+    hidden_sizes = [8, 32, 64]
+    regularization_strengths = [1e-6, 1e-4, 1e-3]
+    learning_rate_decays = [0.99, 0.95, 0.9]
     ###########################################################################
     #                           END OF YOUR CODE                              #
     ###########################################################################
@@ -474,7 +477,7 @@ def find_best_net(
 
     best_net = None
     best_stat = None
-    best_val_acc = 0.0
+    best_val_acc = -1.0
 
     #############################################################################
     # TODO: Tune hyperparameters using the validation set. Store your best      #
@@ -490,7 +493,22 @@ def find_best_net(
     # automatically like we did on the previous exercises.                      #
     #############################################################################
     # Replace "pass" statement with your code
-    pass
+    learning_rates, hidden_sizes, regularization_strengths, learning_rate_decays = get_param_set_fn()
+    for lr in learning_rates:
+        for hs in hidden_sizes:
+            for reg in regularization_strengths:
+                for lr_de in learning_rate_decays:
+                    net = TwoLayerNet(3 * 32 * 32, hs, 10, device=data_dict['X_train'].device, dtype=data_dict['X_train'].dtype)
+                    stats = net.train(data_dict['X_train'], data_dict['y_train'], data_dict['X_val'], data_dict['y_val'],
+                            num_iters=3000, batch_size=1000,
+                            learning_rate=lr, learning_rate_decay=lr_de,
+                            reg=reg, verbose=False)
+                    acc_val = stats["val_acc_history"][-1]
+                    print(acc_val)
+                    if acc_val > best_val_acc:
+                        best_net = net
+                        best_stat = stats
+                        best_val_acc = acc_val
     #############################################################################
     #                               END OF YOUR CODE                            #
     #############################################################################

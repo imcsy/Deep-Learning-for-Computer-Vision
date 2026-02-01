@@ -147,7 +147,9 @@ def nn_forward_pass(params: Dict[str, torch.Tensor], X: torch.Tensor):
     # shape (N, C).                                                            #
     ############################################################################
     # Replace "pass" statement with your code
-    pass
+    hidden = torch.mm(X, W1) + b1
+    hidden[hidden < 0] = 0
+    scores = torch.mm(hidden, W2) + b2
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -212,7 +214,13 @@ def nn_forward_backward(
     # (Check Numeric Stability in http://cs231n.github.io/linear-classify/).   #
     ############################################################################
     # Replace "pass" statement with your code
-    pass
+    batch_size = X.shape[0]
+    scores_exp = torch.exp(scores)
+    probs = scores_exp / scores_exp.sum(dim=1, keepdim=True)
+    probs_cor = probs[range(batch_size),y]
+    data_loss = -torch.log(probs_cor).sum() / batch_size
+    reg_loss = reg * (torch.sum(W1 * W1) + torch.sum(W2 * W2))
+    loss = data_loss + reg_loss
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -226,9 +234,22 @@ def nn_forward_backward(
     # tensor of same size                                                     #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
-    ###########################################################################
-    #                             END OF YOUR CODE                            #
+    ddata_loss = 1.0
+    dreg_loss = 1.0
+    dprobs_cor = - 1/probs_cor / batch_size * ddata_loss
+    dscores = -probs * probs_cor.view(-1,1) * dprobs_cor.view(-1,1)
+    dscores[range(batch_size),y] += probs_cor * dprobs_cor
+    grads['W2'] = torch.mm(h1.t(), dscores) + (reg * 2 * W2) * dreg_loss
+    # grads['W2'] += 
+    grads['b2'] = dscores.sum(dim=0)
+
+    h1_mask = torch.zeros_like(h1)
+    h1_mask[h1 > 0] = 1
+
+    dh1 = torch.mm(dscores, W2.t()) * h1_mask
+    grads['W1'] = torch.mm(X.t(), dh1) + (reg * 2 * W1) * dreg_loss
+    # grads['W1'] += 
+    grads['b1'] = dh1.sum(dim=0)
     ###########################################################################
 
     return loss, grads
@@ -307,7 +328,10 @@ def nn_train(
         # stored in the grads dictionary defined above.                         #
         #########################################################################
         # Replace "pass" statement with your code
-        pass
+        params["W1"] -= learning_rate * grads['W1']
+        params["b1"] -= learning_rate * grads['b1']
+        params["W2"] -= learning_rate * grads['W2']
+        params["b2"] -= learning_rate * grads['b2']
         #########################################################################
         #                             END OF YOUR CODE                          #
         #########################################################################
@@ -365,7 +389,13 @@ def nn_predict(
     # TODO: Implement this function; it should be VERY simple!                #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    W1, b1 = params["W1"], params["b1"]
+    W2, b2 = params["W2"], params["b2"]
+    
+    hidden = torch.mm(X, W1) + b1
+    hidden[hidden < 0] = 0
+    scores = torch.mm(hidden, W2) + b2
+    y_pred = torch.argmax(scores, dim=1)
     ###########################################################################
     #                              END OF YOUR CODE                           #
     ###########################################################################

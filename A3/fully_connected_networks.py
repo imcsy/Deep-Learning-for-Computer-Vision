@@ -445,19 +445,35 @@ class FullyConnectedNet(object):
         ##################################################################
         # Replace "pass" statement with your code
         X_flat = X.view(X.shape[0], -1)
-        hidden_values = []
-        hidden_caches = []
+        lire_values = []
+        lire_caches = []
+        dropout_values = []
+        dropout_caches = []
         wsq_sum = 0
+
         for i in range(self.num_layers-1):
             w = self.params[f"W{i + 1}"]
             b = self.params[f"b{i + 1}"]
-            input = X_flat if i == 0 else hidden_values[-1]
-            out, cache = Linear_ReLU.forward(input, w, b)
-            hidden_values.append(out)
-            hidden_caches.append(cache) 
+            if i == 0:
+              input = X_flat
+            elif self.use_dropout:
+              input = dropout_values[-1]
+            else:
+              input = lire_values[-1]
+
+            lire_out, lire_cache = Linear_ReLU.forward(input, w, b)
+            lire_values.append(lire_out)
+            lire_caches.append(lire_cache) 
+
+            if self.use_dropout:
+              dropout_out, dropout_cache = Dropout.forward(lire_out, self.dropout_param)
+              dropout_values.append(dropout_out)
+              dropout_caches.append(dropout_cache)
+
             wsq_sum += torch.sum(w*w)
 
-        scores, scores_cache = Linear.forward(hidden_values[-1], self.params[f"W{self.num_layers}"], self.params[f"b{self.num_layers}"])
+        scores, scores_cache = Linear.forward(dropout_values[-1] if self.use_dropout else lire_values[-1], self.params[f"W{self.num_layers}"], self.params[f"b{self.num_layers}"])
+        wsq_sum += torch.sum(self.params[f"W{self.num_layers}"] * self.params[f"W{self.num_layers}"])
         #################################################################
         #                      END OF YOUR CODE                         #
         #################################################################
@@ -480,15 +496,20 @@ class FullyConnectedNet(object):
         #####################################################################
         # Replace "pass" statement with your code
         data_loss, dscores = softmax_loss(scores, y)
-        reg_loss = self.reg * wsq_sum
+        reg_loss = 0.5 * self.reg * wsq_sum
         loss = data_loss + reg_loss
 
-        dhidden_last, grads[f"W{self.num_layers}"], grads[f"b{self.num_layers}"] = Linear.backward(dscores, scores_cache)
+        dout_last, grads[f"W{self.num_layers}"], grads[f"b{self.num_layers}"] = Linear.backward(dscores, scores_cache)
+        grads[f"W{self.num_layers}"] += self.reg * self.params[f"W{self.num_layers}"]
         for i in range(self.num_layers - 2, -1, -1):
+          if self.use_dropout:
+            dlire_out_last = Dropout.backward(dout_last, dropout_caches[i])
+          else:
+            dlire_out_last = dout_last
           w_name = f"W{i+1}"
           b_name = f"b{i+1}"
-          dhidden_last, grads[w_name], grads[b_name] = Linear_ReLU.backward(dhidden_last, hidden_caches[i])
-          grads[w_name] += 2 * self.reg * self.params[w_name]
+          dout_last, grads[w_name], grads[b_name] = Linear_ReLU.backward(dlire_out_last, lire_caches[i])
+          grads[w_name] += self.reg * self.params[w_name]
         ###########################################################
         #                   END OF YOUR CODE                      #
         ###########################################################
@@ -543,7 +564,7 @@ def get_five_layer_network_params():
     weight_scale = 1e-5   # Experiment with this!
     # Replace "pass" statement with your code
     learning_rate = 0.1
-    weight_scale = 0.22
+    weight_scale = 0.15
     ################################################################
     #                       END OF YOUR CODE                       #
     ################################################################
@@ -587,8 +608,8 @@ def sgd_momentum(w, dw, config=None):
     # update the velocity v.                                         #
     ##################################################################
     # Replace "pass" statement with your code
-    v =  config['momentum'] * config['velocity']  + dw
-    next_w = w - config['learning_rate'] * v
+    v =  config['momentum'] * v  - config['learning_rate'] * dw 
+    next_w = w + v
     ###################################################################
     #                           END OF YOUR CODE                      #
     ###################################################################
@@ -721,7 +742,8 @@ class Dropout(object):
             # Store the dropout mask in the mask variable.               #
             ##############################################################
             # Replace "pass" statement with your code
-            pass
+            mask = (torch.rand(x.shape, device=x.device, dtype=x.dtype) > p)
+            out = mask * x / (1-p)
             ##############################################################
             #                   END OF YOUR CODE                         #
             ##############################################################
@@ -731,7 +753,7 @@ class Dropout(object):
             # inverted dropout.                                          #
             ##############################################################
             # Replace "pass" statement with your code
-            pass
+            out = x
             ##############################################################
             #                      END OF YOUR CODE                      #
             ##############################################################
@@ -758,7 +780,7 @@ class Dropout(object):
             # inverted dropout                                        #
             ###########################################################
             # Replace "pass" statement with your code
-            pass
+            dx = dout * mask / (1-dropout_param['p'])
             ###########################################################
             #                     END OF YOUR CODE                    #
             ###########################################################

@@ -558,7 +558,7 @@ def sgd(w, dw, config=None):
     """
     if config is None:
         config = {}
-    config.setdefault('learning_rate', 1e-2)
+    config.setdefault('learning_rate', 1e-2)  # set if lr is missing
 
     w -= config['learning_rate'] * dw
     return w, config
@@ -587,7 +587,8 @@ def sgd_momentum(w, dw, config=None):
     # update the velocity v.                                         #
     ##################################################################
     # Replace "pass" statement with your code
-    pass
+    v =  config['momentum'] * config['velocity']  + dw
+    next_w = w - config['learning_rate'] * v
     ###################################################################
     #                           END OF YOUR CODE                      #
     ###################################################################
@@ -621,7 +622,9 @@ def rmsprop(w, dw, config=None):
     # config['cache'].                                                        #
     ###########################################################################
     # Replace "pass" statement with your code
-    pass
+    cache = config['decay_rate'] * config['cache'] + (1-config['decay_rate']) * dw * dw
+    next_w = w - config['learning_rate'] * dw / (cache.sqrt() + config['epsilon'])
+    config['cache'] = cache
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
@@ -662,7 +665,10 @@ def adam(w, dw, config=None):
     # using it in any calculations.                                          #
     ##########################################################################
     # Replace "pass" statement with your code
-    pass
+    config['t'] += 1
+    config['m'] = config['beta1'] * config['m'] + (1-config['beta1']) * dw
+    config['v'] = config['beta2'] * config['v'] + (1-config['beta2']) * dw * dw
+    next_w = w - config['learning_rate'] * config['m'] / (config['v'].sqrt() + config['epsilon'])
     #########################################################################
     #                              END OF YOUR CODE                         #
     #########################################################################

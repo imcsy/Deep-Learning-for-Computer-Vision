@@ -51,7 +51,28 @@ class Conv(object):
         # You are NOT allowed to use anything in torch.nn in other places. #
         ####################################################################
         # Replace "pass" statement with your code
-        pass
+        stride, pad = conv_param['stride'], conv_param['pad']
+        N, C, H, W = x.shape
+        F, C, HH , WW = w.shape
+        H_out = 1 + (H + 2*pad - HH) // stride
+        W_out = 1 + (W + 2*pad - WW) // stride
+        out = torch.zeros(N, F, H_out, W_out, device=x.device, dtype=x.dtype)
+        x_padded = torch.nn.functional.pad(x, (pad, pad, pad, pad), "constant", 0)
+
+        # w (F, C, HH, WW)
+        # b (F,)
+        # out (N, F, H_out, W_out)    
+        x_blocks = []
+        for i_hout in range(H_out):
+          for i_wout in range(W_out):
+            x_block = x_padded[:, :, (i_hout*stride):(i_hout*stride+HH), (i_wout*stride):(i_wout*stride+WW)]    # H_out * W_out * (N, C, HH, WW) 
+            x_blocks.append(x_block)
+        x_blocks_squeeze = torch.stack(x_blocks)      # (H_out*W_out, N, C, HH, WW) 
+        x_blocks_squeeze = x_blocks_squeeze.view(H_out*W_out, N, -1)      # (H_out*W_out, N, C*HH*WW) 
+        w_squeeze = w.view(F, -1)   # (F, C*HH*WW)
+        out_squeeze = x_blocks_squeeze.matmul(w_squeeze.t()) + b    # (H_out*W_out, N, F)
+        out = out_squeeze.permute(1, 2, 0).view(N, F, H_out, W_out)   # (N, F, H_out, W_out)   
+        
         #####################################################################
         #                          END OF YOUR CODE                         #
         #####################################################################
@@ -63,20 +84,39 @@ class Conv(object):
         """
         A naive implementation of the backward pass for a convolutional layer.
           Inputs:
-        - dout: Upstream derivatives.
+        - dout: Upstream derivatives.  (N, F, H_out, W_out) 
         - cache: A tuple of (x, w, b, conv_param) as in conv_forward_naive
 
         Returns a tuple of:
-        - dx: Gradient with respect to x
-        - dw: Gradient with respect to w
-        - db: Gradient with respect to b
+        - dx: Gradient with respect to x      (N, C, H, W)
+        - dw: Gradient with respect to w      (F, C, HH, WW)
+        - db: Gradient with respect to b      (F,)
         """
         dx, dw, db = None, None, None
         ###############################################################
         # TODO: Implement the convolutional backward pass.            #
         ###############################################################
         # Replace "pass" statement with your code
-        pass
+        x, w, b, conv_param = cache
+        stride, pad = conv_param['stride'], conv_param['pad']
+        N, C, H, W = x.shape
+        F, C, HH , WW = w.shape
+        H_out = 1 + (H + 2*pad - HH) // stride
+        W_out = 1 + (W + 2*pad - WW) // stride
+        x_padded = torch.nn.functional.pad(x, (pad, pad, pad, pad), "constant", 0)
+
+        dx, dw, db = torch.zeros_like(x), torch.zeros_like(w), torch.zeros_like(b)
+        dx_padded = torch.zeros_like(x_padded)
+
+        for n in range(N):
+          for f in range(F):
+            db[f] += torch.sum(dout[n, f])
+            for ho in range(H_out): 
+              for wo in range(W_out):
+                dx_padded[n, :, (ho*stride):(ho*stride+HH), (wo*stride):(wo*stride+WW)] += dout[n,f,ho,wo] * w[f]
+                dw[f] += dout[n,f,ho,wo] * x_padded[n, :, (ho*stride):(ho*stride+HH), (wo*stride):(wo*stride+WW)]
+
+        dx = dx_padded[:, :, pad:-pad, pad:-pad]
         ###############################################################
         #                       END OF YOUR CODE                      #
         ###############################################################
@@ -109,7 +149,15 @@ class MaxPool(object):
         # TODO: Implement the max-pooling forward pass                     #
         ####################################################################
         # Replace "pass" statement with your code
-        pass
+        stride, pool_height, pool_width = pool_param['stride'], pool_param['pool_height'], pool_param['pool_width']
+        N, C, H, W = x.shape
+        H_out = 1 + (H - pool_height) // stride
+        W_out = 1 + (W - pool_width) // stride
+        out = torch.zeros(N, C, H_out, W_out, device=x.device, dtype=x.dtype)     # (N, C, H_out, W_out)
+
+        for ho in range(H_out):
+            for wo in range(W_out):
+                out[:, :, ho, wo] = x[:, :, ho*stride:ho*stride+pool_height, wo*stride:wo*stride+pool_width].amax(dim=(2,3))
         ####################################################################
         #                         END OF YOUR CODE                         #
         ####################################################################
@@ -121,7 +169,7 @@ class MaxPool(object):
         """
         A naive implementation of the backward pass for a max-pooling layer.
         Inputs:
-        - dout: Upstream derivatives
+        - dout: Upstream derivatives        # (N, C, H_out, W_out)
         - cache: A tuple of (x, pool_param) as in the forward pass.
         Returns:
         - dx: Gradient with respect to x
@@ -131,7 +179,20 @@ class MaxPool(object):
         # TODO: Implement the max-pooling backward pass                     #
         #####################################################################
         # Replace "pass" statement with your code
-        pass
+        x, pool_param = cache
+        stride, pool_height, pool_width = pool_param['stride'], pool_param['pool_height'], pool_param['pool_width']
+        N, C, H, W = x.shape
+        H_out = 1 + (H - pool_height) // stride
+        W_out = 1 + (W - pool_width) // stride
+        dx = torch.zeros_like(x)
+
+        for n in range(N):
+            for c in range(C):
+                for ho in range(H_out):
+                    for wo in range(W_out):
+                        index_flat = x[n, c, ho*stride:ho*stride+pool_height, wo*stride:wo*stride+pool_width].reshape(-1).argmax()
+                        hmax, wmax = index_flat//pool_width, index_flat%pool_width
+                        dx[n, c, ho*stride+hmax, wo*stride+wmax] = dout[n,c,ho,wo]
         ####################################################################
         #                          END OF YOUR CODE                        #
         ####################################################################

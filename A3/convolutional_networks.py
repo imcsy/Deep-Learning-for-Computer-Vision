@@ -443,15 +443,22 @@ class DeepConvNet(object):
         filter_size = 3
         for i in range(len(num_filters)):
             input_channel = C if i==0 else num_filters[i-1]
-            self.params[f"W{i + 1}"] = torch.randn(num_filters[i], input_channel, filter_size, filter_size, device=device, dtype=dtype) * weight_scale
+            if weight_scale == 'kaiming':
+                self.params[f"W{i + 1}"] = kaiming_initializer(input_channel, num_filters[i], filter_size, relu=True, device=device, dtype=dtype)
+            else:
+                self.params[f"W{i + 1}"] = torch.randn(num_filters[i], input_channel, filter_size, filter_size, device=device, dtype=dtype) * weight_scale
             self.params[f"b{i + 1}"] = torch.zeros(num_filters[i], device=device, dtype=dtype)     
             if self.batchnorm:
                 self.params[f"scale{i+1}"] = torch.ones(num_filters)
                 self.params[f"shift{i+1}"] = torch.zeros(num_filters)
-            H = H // 2
-            W = W // 2
+            if i in max_pools:
+                H = H // 2
+                W = W // 2
         # linear
-        self.params[f"W{self.num_layers}"] = torch.randn(num_filters[-1]*H*W, num_classes, device=device, dtype=dtype) * weight_scale
+        if weight_scale == 'kaiming':
+            self.params[f"W{self.num_layers}"] = kaiming_initializer(num_filters[-1]*H*W, num_classes, K=None, relu=True, device=device, dtype=dtype)
+        else:
+            self.params[f"W{self.num_layers}"] = torch.randn(num_filters[-1]*H*W, num_classes, device=device, dtype=dtype) * weight_scale
         self.params[f"b{self.num_layers}"] = torch.zeros(num_classes, device=device, dtype=dtype)   
         ################################################################
         #                      END OF YOUR CODE                        #
@@ -566,7 +573,10 @@ class DeepConvNet(object):
         for i in range(self.num_layers-1):
             input = X if i==0 else outs[-1]
             W, b = self.params[f"W{i+1}"], self.params[f"b{i+1}"]
-            out, cache = Conv_ReLU_Pool.forward(input, W, b, conv_param=conv_param, pool_param=pool_param)
+            if i in self.max_pools:
+                out, cache = Conv_ReLU_Pool.forward(input, W, b, conv_param=conv_param, pool_param=pool_param)
+            else:
+                out, cache = Conv_ReLU.forward(input, W, b, conv_param=conv_param)
             outs.append(out)
             caches.append(cache)
         out_flat = outs[-1].view(N, -1)
@@ -599,7 +609,10 @@ class DeepConvNet(object):
         dout_flat, grads[f"W{self.num_layers}"], grads[f"b{self.num_layers}"] = Linear.backward(dscores, cache_scores)
         dout = dout_flat.view(outs[-1].shape)
         for i in range(self.num_layers-2, -1, -1):
-            dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU_Pool.backward(dout, caches[i])
+            if i in self.max_pools:
+                dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU_Pool.backward(dout, caches[i])
+            else:
+                dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU.backward(dout, caches[i]) 
             grads[f"W{i+1}"] += self.reg * 2 * self.params[f"W{i+1}"]
         #############################################################
         #                       END OF YOUR CODE                    #
@@ -631,7 +644,23 @@ def create_convolutional_solver_instance(data_dict, dtype, device):
     # CIFAR-10 within 60 seconds.                           #
     #########################################################
     # Replace "pass" statement with your code
-    pass
+    print("hors")
+    model = DeepConvNet(
+                 input_dims=data_dict['X_train'].shape[1:],
+                 num_filters=[8, 32, 128, 128],
+                 max_pools=[0, 1, 2],
+                 reg=5e-4,
+                 weight_scale='kaiming',
+                 dtype=dtype,
+                 device=device)
+    solver = Solver(model, data_dict,
+                    update_rule=adam,
+                    optim_config={'learning_rate': 1e-3},
+                    # lr_decay=0.97,
+                    num_epochs=10, batch_size=128,
+                    print_every=100,
+                    device=device)
+    solver.train()
     #########################################################
     #                  END OF YOUR CODE                     #
     #########################################################
@@ -651,6 +680,7 @@ def kaiming_initializer(Din, Dout, K=None, relu=True, device='cpu',
       a nonnegative integer then initialize the weights for a convolution
       layer with Din input channels, Dout output channels, and a kernel size
       of KxK.
+      K is kernal size
     - relu: If ReLU=True, then initialize weights with a gain of 2 to
       account for a ReLU nonlinearity (Kaiming initializaiton); otherwise
       initialize weights with a gain of 1 (Xavier initialization).
@@ -663,7 +693,7 @@ def kaiming_initializer(Din, Dout, K=None, relu=True, device='cpu',
     """
     gain = 2. if relu else 1.
     weight = None
-    if K is None:
+    if K is None: # linear layer
         ###################################################################
         # TODO: Implement Kaiming initialization for linear layer.        #
         # The weight scale is sqrt(gain / fan_in),                        #
@@ -673,11 +703,12 @@ def kaiming_initializer(Din, Dout, K=None, relu=True, device='cpu',
         # and device.                                                     #
         ###################################################################
         # Replace "pass" statement with your code
-        pass
+        weight_scale = (gain / Din) ** 0.5
+        weight = torch.randn(Din, Dout, device=device, dtype=dtype) * weight_scale
         ###################################################################
         #                            END OF YOUR CODE                     #
         ###################################################################
-    else:
+    else:   # conv layer
         ###################################################################
         # TODO: Implement Kaiming initialization for convolutional layer. #
         # The weight scale is sqrt(gain / fan_in),                        #
@@ -687,7 +718,8 @@ def kaiming_initializer(Din, Dout, K=None, relu=True, device='cpu',
         # and device.                                                     #
         ###################################################################
         # Replace "pass" statement with your code
-        pass
+        weight_scale = (gain / (Din*K*K) ) ** 0.5
+        weight = torch.randn(Dout, Din, K, K, device=device, dtype=dtype) * weight_scale
         ###################################################################
         #                         END OF YOUR CODE                        #
         ###################################################################
@@ -776,7 +808,11 @@ class BatchNorm(object):
             # (https://arxiv.org/abs/1502.03167) might prove to be helpful.  #
             ##################################################################
             # Replace "pass" statement with your code
-            pass
+            mean = x.mean(dim=0)
+            std = (x.var(0, unbiased = False) + eps).sqrt()
+            out = (x - mean) / std * gamma + beta
+            running_mean = momentum * running_mean + (1 - momentum) * mean
+            running_var = momentum * running_var + (1 - momentum) * std
             ################################################################
             #                           END OF YOUR CODE                   #
             ################################################################
@@ -789,7 +825,9 @@ class BatchNorm(object):
             # in the out variable.                                         #
             ################################################################
             # Replace "pass" statement with your code
-            pass
+            mean = running_mean
+            std = (running_var + eps).sqrt()
+            out = (x - mean) /std * gamma + beta
             ################################################################
             #                      END OF YOUR CODE                        #
             ################################################################
@@ -800,6 +838,7 @@ class BatchNorm(object):
         bn_param['running_mean'] = running_mean.detach()
         bn_param['running_var'] = running_var.detach()
 
+        cache = (mode, x, mean, std, gamma, beta)
         return out, cache
 
     @staticmethod
@@ -831,7 +870,21 @@ class BatchNorm(object):
         # Don't forget to implement train and test mode separately.         #
         #####################################################################
         # Replace "pass" statement with your code
-        pass
+        mode, x, mean, std, gamma, beta = cache
+        N = x.shape[0]
+
+        norm_x = (x-mean) / std
+        dnorm_x = dout * gamma
+        dgamma = ((x - mean) / std * dout).sum(dim=0)
+        dbeta = dout.sum(dim=0)
+        if mode == 'test':    
+            dx = dout * gamma / std
+        elif mode == 'train':
+            dx_norm_x = (1-1/N) / std - norm_x*(x-mean)/N/(std**2)
+            dx = dnorm_x * dx_norm_x
+        else:
+            raise ValueError('Invalid forward batchnorm mode "%s"' % mode)
+
         #################################################################
         #                      END OF YOUR CODE                         #
         #################################################################

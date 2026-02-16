@@ -449,8 +449,8 @@ class DeepConvNet(object):
                 self.params[f"W{i + 1}"] = torch.randn(num_filters[i], input_channel, filter_size, filter_size, device=device, dtype=dtype) * weight_scale
             self.params[f"b{i + 1}"] = torch.zeros(num_filters[i], device=device, dtype=dtype)     
             if self.batchnorm:
-                self.params[f"scale{i+1}"] = torch.ones(num_filters)
-                self.params[f"shift{i+1}"] = torch.zeros(num_filters)
+                self.params[f"gamma{i+1}"] = torch.ones(num_filters[i], device=device, dtype=dtype)
+                self.params[f"beta{i+1}"] = torch.zeros(num_filters[i], device=device, dtype=dtype)
             if i in max_pools:
                 H = H // 2
                 W = W // 2
@@ -572,14 +572,24 @@ class DeepConvNet(object):
         caches = []
         for i in range(self.num_layers-1):
             input = X if i==0 else outs[-1]
-            W, b = self.params[f"W{i+1}"], self.params[f"b{i+1}"]
+            W, b = self.params[f"W{i+1}"], self.params[f"b{i+1}"]   # W (input_channel, num_filters[i], filter_size, filter_size);     b (num_filter[i])
             if i in self.max_pools:
-                out, cache = Conv_ReLU_Pool.forward(input, W, b, conv_param=conv_param, pool_param=pool_param)
+                if self.batchnorm:
+                    gamma, beta = self.params[f"gamma{i+1}"], self.params[f"beta{i+1}"]     # gamma (num_filter[i]);    beta (num_filter[i])
+                    bn_param = self.bn_params[i]
+                    out, cache = Conv_BatchNorm_ReLU_Pool.forward(input, W, b, gamma, beta, conv_param=conv_param, bn_param=bn_param, pool_param=pool_param)
+                else:
+                    out, cache = Conv_ReLU_Pool.forward(input, W, b, conv_param=conv_param, pool_param=pool_param)
             else:
-                out, cache = Conv_ReLU.forward(input, W, b, conv_param=conv_param)
+                if self.batchnorm:
+                    gamma, beta = self.params[f"gamma{i+1}"], self.params[f"beta{i+1}"]
+                    bn_param = self.bn_params[i]
+                    out, cache = Conv_BatchNorm_ReLU.forward(input, W, b, gamma, beta, conv_param=conv_param, bn_param=bn_param)
+                else:
+                    out, cache = Conv_ReLU.forward(input, W, b, conv_param=conv_param)
             outs.append(out)
             caches.append(cache)
-        out_flat = outs[-1].view(N, -1)
+        out_flat = outs[-1].reshape(N, -1)
         scores, cache_scores = Linear.forward(out_flat, self.params[f"W{self.num_layers}"], self.params[f"b{self.num_layers}"])
         #####################################################
         #                 END OF YOUR CODE                  #
@@ -607,12 +617,18 @@ class DeepConvNet(object):
         loss = data_loss + reg_loss
 
         dout_flat, grads[f"W{self.num_layers}"], grads[f"b{self.num_layers}"] = Linear.backward(dscores, cache_scores)
-        dout = dout_flat.view(outs[-1].shape)
+        dout = dout_flat.reshape(outs[-1].shape)
         for i in range(self.num_layers-2, -1, -1):
             if i in self.max_pools:
-                dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU_Pool.backward(dout, caches[i])
+                if self.batchnorm:
+                    dout, grads[f"W{i+1}"], grads[f"b{i+1}"], grads[f"gamma{i+1}"], grads[f"beta{i+1}"] = Conv_BatchNorm_ReLU_Pool.backward(dout, caches[i])
+                else:
+                    dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU_Pool.backward(dout, caches[i])
             else:
-                dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU.backward(dout, caches[i]) 
+                if self.batchnorm:
+                    dout, grads[f"W{i+1}"], grads[f"b{i+1}"], grads[f"gamma{i+1}"], grads[f"beta{i+1}"] = Conv_BatchNorm_ReLU.backward(dout, caches[i])
+                else:
+                    dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU.backward(dout, caches[i]) 
             grads[f"W{i+1}"] += self.reg * 2 * self.params[f"W{i+1}"]
         #############################################################
         #                       END OF YOUR CODE                    #
@@ -809,10 +825,11 @@ class BatchNorm(object):
             ##################################################################
             # Replace "pass" statement with your code
             mean = x.mean(dim=0)
-            std = (x.var(0, unbiased = False) + eps).sqrt()
+            var = x.var(0, unbiased = False)
+            std = (var + eps).sqrt()
             out = (x - mean) / std * gamma + beta
             running_mean = momentum * running_mean + (1 - momentum) * mean
-            running_var = momentum * running_var + (1 - momentum) * std
+            running_var = momentum * running_var + (1 - momentum) * var
             ################################################################
             #                           END OF YOUR CODE                   #
             ################################################################
@@ -875,13 +892,16 @@ class BatchNorm(object):
 
         norm_x = (x-mean) / std
         dnorm_x = dout * gamma
-        dgamma = ((x - mean) / std * dout).sum(dim=0)
+        dgamma = (norm_x * dout).sum(dim=0)
         dbeta = dout.sum(dim=0)
         if mode == 'test':    
             dx = dout * gamma / std
         elif mode == 'train':
-            dx_norm_x = (1-1/N) / std - norm_x*(x-mean)/N/(std**2)
-            dx = dnorm_x * dx_norm_x
+            dvar = torch.sum(dnorm_x * (x - mean) * -0.5 * (std**-3), dim=0)    
+            # Gradient of the mean
+            dmean = torch.sum(dnorm_x * -1/std, dim=0) + dvar * torch.sum(-2 * (x - mean), dim=0) / N
+            # Final dx
+            dx = (dnorm_x / std) + (dvar * 2 * (x - mean) / N) + (dmean / N)
         else:
             raise ValueError('Invalid forward batchnorm mode "%s"' % mode)
 
@@ -917,7 +937,16 @@ class BatchNorm(object):
         # single 80-character line.                                       #
         ###################################################################
         # Replace "pass" statement with your code
-        pass
+        mode, x, mean, std, gamma, beta = cache
+        norm_x = (x - mean) / std
+
+        dnorm_x = dout * gamma
+        dx = dnorm_x / std
+        dgamma = (dout * norm_x).sum(0)
+        dbeta = dout.sum(0)
+        N = x.shape[0]
+        if mode == 'train':
+            dx = (1. / N / std) * (N * dnorm_x - dnorm_x.sum(0) - norm_x*(dnorm_x * norm_x).sum(0))
         #################################################################
         #                        END OF YOUR CODE                       #
         #################################################################
@@ -965,7 +994,41 @@ class SpatialBatchNorm(object):
         # ours is less than five lines.                                #
         ################################################################
         # Replace "pass" statement with your code
-        pass
+        N, C, H, W = x.shape
+        x_flat = x.permute(0, 2, 3, 1).reshape(-1, C)
+
+        mode = bn_param['mode']
+        eps = bn_param.get('eps', 1e-5)
+        momentum = bn_param.get('momentum', 0.9)
+
+        running_mean = bn_param.get('running_mean',
+                                    torch.zeros(C,
+                                                dtype=x_flat.dtype,
+                                                device=x_flat.device))
+        running_var = bn_param.get('running_var',
+                                   torch.zeros(C,
+                                               dtype=x_flat.dtype,
+                                               device=x_flat.device))
+
+        out, cache = None, None
+        if mode == 'train':
+            mean = x_flat.mean(dim=0)
+            var = x_flat.var(dim=0, unbiased=False)
+            std = (var + eps).sqrt()
+            running_mean = momentum * running_mean + (1 - momentum) * mean
+            running_var = momentum * running_var + (1 - momentum) * var
+        elif mode == 'test':
+            mean = running_mean
+            std = (running_var + eps).sqrt()
+        else:
+            raise ValueError('Invalid forward batchnorm mode "%s"' % mode)
+        out_flat = (x_flat - mean) / std * gamma + beta
+        out = out_flat.reshape(N, H, W, C).permute(0, 3, 1, 2)
+        
+        bn_param['running_mean'] = running_mean.detach()
+        bn_param['running_var'] = running_var.detach()
+
+        cache = (mode, x, mean, std, gamma, beta)
         ################################################################
         #                       END OF YOUR CODE                       #
         ################################################################
@@ -996,7 +1059,27 @@ class SpatialBatchNorm(object):
         # ours is less than five lines.                                 #
         #################################################################
         # Replace "pass" statement with your code
-        pass
+        mode, x, mean, std, gamma, beta = cache                 # mean, std, gamma, beta (C,)
+        N, C, H, W = x.shape
+        dim_x0 = N * H * W
+        x_flat = x.permute(0, 2, 3, 1).reshape(-1, C)           # (N*H*W, C)
+        dout_flat = dout.permute(0, 2, 3, 1).reshape(-1, C)     # (N*H*W, C)
+
+        norm_x_flat = (x_flat-mean) / std                       # (N*H*W, C)
+        dnorm_x_flat = dout_flat * gamma                             # (N*H*W, C)
+        dgamma = (norm_x_flat * dout_flat).sum(dim=0)                # (C,)
+        dbeta = dout_flat.sum(dim=0)                                 # (C,)
+        if mode == 'test':    
+            dx_flat = dout_flat * gamma / std                             # (N*H*W, C)
+        elif mode == 'train':
+            dvar = torch.sum(dnorm_x_flat * (x_flat - mean) * -0.5 * (std**-3), dim=0)    
+            # Gradient of the mean
+            dmean = torch.sum(dnorm_x_flat * -1/std, dim=0) + dvar * torch.sum(-2 * (x_flat - mean), dim=0) / dim_x0
+            # Final dx
+            dx_flat = (dnorm_x_flat / std) + (dvar * 2 * (x_flat - mean) / dim_x0) + (dmean / dim_x0)
+        else:
+            raise ValueError('Invalid forward batchnorm mode "%s"' % mode)
+        dx = dx_flat.reshape(N, H, W, C).permute(0, 3, 1, 2)
         ##################################################################
         #                       END OF YOUR CODE                         #
         ##################################################################

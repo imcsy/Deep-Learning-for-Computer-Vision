@@ -255,7 +255,21 @@ class ThreeLayerConvNet(object):
         # look at the start of the loss() function to see how that happens.  #
         ######################################################################
         # Replace "pass" statement with your code
-        pass
+        C, H, W = input_dims
+        # input (N, C , H, W)
+        # conv
+        self.params['W1'] = torch.randn(num_filters, C, filter_size, filter_size, device=device, dtype=dtype) * weight_scale
+        self.params['b1'] = torch.zeros(num_filters, device=device, dtype=dtype) * weight_scale
+        # (N, num_filters, H, W)
+        # ReLU + 2*2 max pool 
+        # (N, num_filters, H/2, W/2)
+        # (N, num_filters * H/2 * W/2)
+        input_li_dims = int(num_filters * H/2 * W/2)
+        self.params['W2'] = torch.randn(input_li_dims, hidden_dim, device=device, dtype=dtype) * weight_scale
+        self.params['b2'] = torch.zeros(hidden_dim, device=device, dtype=dtype)
+        # (N, hidden_dims)
+        self.params['W3'] = torch.randn(hidden_dim, num_classes, device=device, dtype=dtype) * weight_scale
+        self.params['b3'] = torch.zeros(num_classes, device=device, dtype=dtype)
         ######################################################################
         #                            END OF YOUR CODE                        #
         ######################################################################
@@ -304,7 +318,11 @@ class ThreeLayerConvNet(object):
         # above                                                              #
         ######################################################################
         # Replace "pass" statement with your code
-        pass
+        # (conv - relu - 2x2 max pool) - (linear - relu) - (linear) - softmax
+        out_convrepo, cache_convrepo = Conv_ReLU_Pool.forward(X, W1, b1, conv_param, pool_param)
+        out_convrepo_flat = out_convrepo.view(out_convrepo.shape[0], -1)
+        out_hidden, cache_hidden = Linear_ReLU.forward(out_convrepo_flat, W2, b2)
+        scores, cache_scores = Linear.forward(out_hidden, W3, b3)
         ######################################################################
         #                             END OF YOUR CODE                       #
         ######################################################################
@@ -325,7 +343,17 @@ class ThreeLayerConvNet(object):
         # does not include a factor of 0.5                                 #
         ####################################################################
         # Replace "pass" statement with your code
-        pass
+        data_loss, dscores = softmax_loss(scores, y)
+        reg_loss = (torch.sum(W1*W1) + torch.sum(W2*W2) + torch.sum(W3*W3)) * self.reg
+        loss = data_loss + reg_loss
+
+        dout_hidden, grads['W3'], grads['b3'] = Linear.backward(dscores, cache_scores)
+        dout_convrepo_flat, grads['W2'], grads['b2'] = Linear_ReLU.backward(dout_hidden, cache_hidden)
+        dout_convrepo = dout_convrepo_flat.view(out_convrepo.shape)
+        dX, grads['W1'], grads['b1'] = Conv_ReLU_Pool.backward(dout_convrepo, cache_convrepo)
+        grads["W1"] += 2 * self.reg * W1
+        grads["W2"] += 2 * self.reg * W2
+        grads["W3"] += 2 * self.reg * W3
         ###################################################################
         #                             END OF YOUR CODE                    #
         ###################################################################
@@ -409,7 +437,22 @@ class DeepConvNet(object):
         # initilized to ones and zeros respectively.                        #
         #####################################################################
         # Replace "pass" statement with your code
-        pass
+        # {conv - [batchnorm?] - relu - [pool?]} x (L - 1) - linear
+        # conv
+        C, H, W = input_dims
+        filter_size = 3
+        for i in range(len(num_filters)):
+            input_channel = C if i==0 else num_filters[i-1]
+            self.params[f"W{i + 1}"] = torch.randn(num_filters[i], input_channel, filter_size, filter_size, device=device, dtype=dtype) * weight_scale
+            self.params[f"b{i + 1}"] = torch.zeros(num_filters[i], device=device, dtype=dtype)     
+            if self.batchnorm:
+                self.params[f"scale{i+1}"] = torch.ones(num_filters)
+                self.params[f"shift{i+1}"] = torch.zeros(num_filters)
+            H = H // 2
+            W = W // 2
+        # linear
+        self.params[f"W{self.num_layers}"] = torch.randn(num_filters[-1]*H*W, num_classes, device=device, dtype=dtype) * weight_scale
+        self.params[f"b{self.num_layers}"] = torch.zeros(num_classes, device=device, dtype=dtype)   
         ################################################################
         #                      END OF YOUR CODE                        #
         ################################################################
@@ -516,7 +559,18 @@ class DeepConvNet(object):
         # layers, to simplify your implementation.              #
         #########################################################
         # Replace "pass" statement with your code
-        pass
+        # {conv - [batchnorm?] - relu - [pool?]} x (L - 1) - linear
+        N = X.shape[0]
+        outs = []
+        caches = []
+        for i in range(self.num_layers-1):
+            input = X if i==0 else outs[-1]
+            W, b = self.params[f"W{i+1}"], self.params[f"b{i+1}"]
+            out, cache = Conv_ReLU_Pool.forward(input, W, b, conv_param=conv_param, pool_param=pool_param)
+            outs.append(out)
+            caches.append(cache)
+        out_flat = outs[-1].view(N, -1)
+        scores, cache_scores = Linear.forward(out_flat, self.params[f"W{self.num_layers}"], self.params[f"b{self.num_layers}"])
         #####################################################
         #                 END OF YOUR CODE                  #
         #####################################################
@@ -537,7 +591,16 @@ class DeepConvNet(object):
         # does not include a factor of 0.5                                #
         ###################################################################
         # Replace "pass" statement with your code
-        pass
+        data_loss, dscores = softmax_loss(scores, y)
+        reg_loss = self.reg * sum(torch.sum(self.params[f'W{i+1}']**2) 
+                          for i in range(self.num_layers))
+        loss = data_loss + reg_loss
+
+        dout_flat, grads[f"W{self.num_layers}"], grads[f"b{self.num_layers}"] = Linear.backward(dscores, cache_scores)
+        dout = dout_flat.view(outs[-1].shape)
+        for i in range(self.num_layers-2, -1, -1):
+            dout, grads[f"W{i+1}"], grads[f"b{i+1}"] = Conv_ReLU_Pool.backward(dout, caches[i])
+            grads[f"W{i+1}"] += self.reg * 2 * self.params[f"W{i+1}"]
         #############################################################
         #                       END OF YOUR CODE                    #
         #############################################################
@@ -546,8 +609,8 @@ class DeepConvNet(object):
 
 
 def find_overfit_parameters():
-    weight_scale = 2e-3   # Experiment with this!
-    learning_rate = 1e-5  # Experiment with this!
+    weight_scale = 1e-1   # Experiment with this!
+    learning_rate = 1e-3  # Experiment with this!
     ###########################################################
     # TODO: Change weight_scale and learning_rate so your     #
     # model achieves 100% training accuracy within 30 epochs. #
